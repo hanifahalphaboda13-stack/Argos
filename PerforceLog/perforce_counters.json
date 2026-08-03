@@ -1,0 +1,17 @@
+{
+  "type": "Counter",
+  "openmetrics_reference": "prometheus/client_java Metric Types",
+  "pipeline_beepbeep": "QueueSource → FilterOn → TurnInto(1) → Cumulate",
+  "perforce_events_total": {
+    "help": "Total number of Perforce user commands processed",
+    "value": 16262
+  },
+  "perforce_user_submit_total": {
+    "help": "Total number of user-submit commands",
+    "value": 1224
+  },
+  "perforce_user_edit_total": {
+    "help": "Total number of user-edit commands",
+    "value": 4069
+  }
+}

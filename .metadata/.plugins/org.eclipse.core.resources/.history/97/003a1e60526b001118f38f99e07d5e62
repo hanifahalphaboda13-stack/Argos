@@ -1,0 +1,61 @@
+package ca.uqac.detection;
+
+import java.util.List;
+
+public class Main {
+
+    private static final String REPERTOIRE_SORTIE =
+        "/home/hani/Documents/cours été 2026";
+
+    private static final String FICHIER_JSON =
+        REPERTOIRE_SORTIE + "/evenements_bloc_analytique.json";
+
+    private static final String FICHIER_CSV =
+        REPERTOIRE_SORTIE + "/evenements_bloc_analytique.csv";
+
+    public static void main(String[] args) throws Exception {
+        String logBrut;
+        int seuilRush = UtilEvenements.SEUIL_RUSH_DEFAUT;
+
+        if (args.length < 1) {
+            logBrut = "/home/hani/Documents/cours été 2026/log.txt";
+            System.out.println("Usage : java Main <log.txt> [seuilRush]");
+            System.out.println("Valeurs par défaut utilisées.\n");
+        } else {
+            logBrut = args[0];
+            if (args.length >= 2) {
+                seuilRush = Integer.parseInt(args[1]);
+            }
+        }
+
+        System.out.println("Lecture du log : " + logBrut);
+        List<PerforceEvent> evenements = LecteurLog.lire(logBrut);
+        System.out.println("Événements extraits : " + evenements.size());
+
+        System.out.println("\n--- Statistiques doublons ---");
+        UtilEvenements.afficherStatistiquesDoublons(evenements);
+
+        List<PerforceEvent> uniques = UtilEvenements.supprimerDoublons(evenements);
+        List<EnrichissementEvenements.LigneAnalytique> lignes =
+            EnrichissementEvenements.enrichir(uniques);
+
+        // --- Export : décommenter le format voulu (un ou les deux) ---
+        EnrichissementEvenements.exporterLignes(lignes, FICHIER_JSON, UtilEvenements.FormatSortie.JSON);
+        System.out.println("Fichier écrit (json) : " + FICHIER_JSON);
+
+        // EnrichissementEvenements.exporterLignes(lignes, FICHIER_CSV, UtilEvenements.FormatSortie.CSV);
+        // System.out.println("Fichier écrit (csv) : " + FICHIER_CSV);
+
+        UtilEvenements.analyserAvecBeepBeep(uniques);
+        UtilEvenements.ResultatPhase2 alertes = UtilEvenements.analyserPhase2(uniques, seuilRush);
+        String fichierAlertes = UtilEvenements.cheminAlertesDepuis(FICHIER_JSON);
+        UtilEvenements.exporterAlertesPhase2(alertes, fichierAlertes);
+        System.out.println("Alertes écrites (json) : " + fichierAlertes);
+
+        System.out.println("\nAperçu (500 premiers événements) :");
+        for (int i = 0; i < 500 && i < lignes.size(); i++) {
+            System.out.println("\nÉvénement " + (i + 1) + " :");
+            EnrichissementEvenements.afficherDetail(lignes.get(i));
+        }
+    }
+}

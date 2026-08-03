@@ -1,0 +1,74 @@
+package ca.uqac.detection;
+
+import java.util.List;
+
+public class Main {
+    public static void main(String[] args) throws Exception {
+        String logBrut;
+        String fichierSortie;
+        UtilEvenements.FormatSortie format;
+        int seuilRush = UtilEvenements.SEUIL_RUSH_DEFAUT;
+
+        if (args.length < 2) {
+            logBrut = "/home/hani/Documents/cours été 2026/log.txt";
+            fichierSortie = "/home/hani/Documents/cours été 2026/evenements_bloc.json";
+            format = UtilEvenements.FormatSortie.JSON;
+            System.out.println("Usage : java Main <log.txt> <sortie.json|sortie.csv> [json|csv] [seuilRush]");
+            System.out.println("Valeurs par défaut utilisées.\n");
+        } else {
+            logBrut = args[0];
+            fichierSortie = args[1];
+            format = args.length >= 3 && !estEntier(args[2])
+                ? UtilEvenements.FormatSortie.depuis(args[2])
+                : UtilEvenements.FormatSortie.depuisChemin(fichierSortie);
+            if (args.length >= 3 && estEntier(args[2])) {
+                seuilRush = Integer.parseInt(args[2]);
+            } else if (args.length >= 4) {
+                seuilRush = Integer.parseInt(args[3]);
+            }
+        }
+
+        System.out.println("Lecture du log : " + logBrut);
+        List<PerforceEvent> evenements = LecteurLog.lire(logBrut);
+        System.out.println("Événements extraits : " + evenements.size());
+
+        System.out.println("\n--- Statistiques doublons ---");
+        UtilEvenements.afficherStatistiquesDoublons(evenements);
+
+        List<PerforceEvent> uniques = UtilEvenements.supprimerDoublons(evenements);
+        List<EnrichissementEvenements.LigneAnalytique> lignes =
+            EnrichissementEvenements.enrichir(uniques);
+
+        UtilEvenements.exporter(uniques, fichierSortie, format);
+        System.out.println("Fichier écrit (" + format.name().toLowerCase() + ") : " + fichierSortie);
+
+        String fichierAnalytique = EnrichissementEvenements.cheminAnalytiqueDepuis(fichierSortie);
+        EnrichissementEvenements.exporterAnalytiqueLignes(lignes, fichierAnalytique, format);
+        System.out.println("Fichier analytique (" + format.name().toLowerCase() + ") : " + fichierAnalytique);
+        System.out.println("  → colonnes enrichies, file_path en tableau (chemins bruts du log)");
+
+        UtilEvenements.analyserAvecBeepBeep(uniques);
+        UtilEvenements.ResultatPhase2 alertes = UtilEvenements.analyserPhase2(uniques, seuilRush);
+        String fichierAlertes = UtilEvenements.cheminAlertesDepuis(fichierSortie);
+        UtilEvenements.exporterAlertesPhase2(alertes, fichierAlertes);
+        System.out.println("Alertes écrites (json) : " + fichierAlertes);
+
+        System.out.println("\nAperçu (5 premiers événements) :");
+        for (int i = 0; i < 5 && i < lignes.size(); i++) {
+            System.out.println("\nÉvénement " + (i + 1) + " :");
+            EnrichissementEvenements.afficherDetail(lignes.get(i));
+        }
+    }
+
+    private static boolean estEntier(String valeur) {
+        if (valeur == null || valeur.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            Integer.parseInt(valeur.trim());
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+}

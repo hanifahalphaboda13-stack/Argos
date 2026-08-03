@@ -1,0 +1,11 @@
+package ca.uqac.detection;
+
+import ca.uqac.lif.cep.Connector;
+import ca.uqac.lif.cep.tmf.QueueSource;
+import ca.uqac.lif.cep.functions.ApplyFunction;
+
+public class Main {
+    public static void main(String[] args) {
+        System.out.println("BeepBeep chargé avec succès !");
+    }
+}

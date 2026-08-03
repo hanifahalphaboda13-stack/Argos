@@ -1,0 +1,296 @@
+RÉSUMÉ DU PROJET — Détection d'antipatterns Perforce / BeepBeep
+Date : 19 juin 2026 (mis à jour)
+================================================================================
+
+OBJECTIF DU PROJET
+------------------
+Détecter des antipatterns — définis ici comme des **mauvais comportements**
+observables dans les logs Perforce — avec BeepBeep. Contexte : dépôt de jeux
+(Unreal Engine 5.6) où Perforce versionne surtout des **fichiers binaires**
+(.uasset, .umap, etc.) : l'analyse porte sur les métadonnées VCS (commandes,
+chemins, timing), pas le contenu des assets. Le catalogue ReliSA en recense
+168 ; nos traces n'en permettent d'exploiter qu'un sous-ensemble lié au cycle
+edit / sync / submit / revert.
+
+
+1. PÉRIMÈTRE DÉFINI (réunion superviseurs)
+------------------------------------------
+
+5 comportements retenus (sur 168 fiches ReliSA) — ceux détectables dans p4d :
+  - Collective Procrastination (rush de submits)
+  - Warm Bodies (devs peu actifs)
+  - Lone Wolf (beaucoup d'edits, peu de submits)
+  - Bystander Apathy (checkout sans submit)
+  - Edit puis revert (checkout abandonné sans modification)
+
+Commandes Perforce retenues (11) :
+  user-edit, user-submit, user-sync, user-add, user-revert, user-lock,
+  user-shelve, user-resolve, user-delete, user-diff, user-integrate
+
+Référence : catalogue ReliSA — 168 antipatterns (sous-ensemble VCS seulement)
+  https://github.com/ReliSA/Software-process-antipatterns-catalogue
+
+Hors périmètre log Perforce (exemples) : réunions improductives, management,
+spécifications floues, dette documentaire — nécessitent d'autres sources.
+
+
+1b. CORRESPONDANCE AVEC LE CATALOGUE RELISA (5 / 168)
+-----------------------------------------------------
+
+  Notre détection          | Fiche ReliSA              | Note
+  -------------------------|---------------------------|---------------------------
+  Collective Procrastination | Collective_Procrastination | Correspondance directe
+  Warm Bodies                | Warm_Bodies / Deadwood    | Correspondance directe
+  Lone Wolf                  | Lone-Wolf                 | Correspondance directe
+  Bystander Apathy           | (pas d'équivalent exact)  | Proxy log : edit sans submit.
+                             | Bystander_Apathy (ReliSA) | ReliSA = effet témoin social
+                             |                           | (personne n'aide un collègue)
+  Edit → revert              | Cascading_Branches        | Approximation : travail isolé
+                             |                           | puis abandonné sans intégration
+                             | (pas d'entrée dédiée)     | Opérationnalisation nouvelle
+                             |                           | via user-edit / user-revert
+
+-----------------------------------
+
+2. PARSEUR DE LOGS (LecteurLog.java, MetriquesServeur.java)
+-----------------------------------------------------------
+
+  - Lecture en streaming ; assemblage en blocs (cmd + completed + métriques ---)
+  - 11 commandes user-* retenues
+  - Extrait par bloc événement : timestamp, pid, user, workspace, ip, client,
+    commande, args, fichiers, durée (completed), métriques serveur
+  - Métriques après completed : lapse, memory, rpc, db locks, rows
+  - Gère chemins Windows avec espaces et fichiers multiples
+  - Associe durée + métriques via pid + ligne completed
+  - Lecteur avec remise (pile) pour ne pas perdre d'événements
+
+
+3. MODÈLE ET EXPORT (PerforceEvent, EnrichissementEvenements)
+--------------------------------------------------------------
+
+  - Fichiers en liste dans PerforceEvent ; args conservés séparément
+  - Export principal aligné sur perforce_events_v3 (dataset de référence)
+  - Export v3 (json/csv) et analyses BeepBeep sur événements sans doublons
+  - Clé dédup : timestamp|pid|commande|args|fichiers
+  - Affichage console : 20 premiers événements (format LigneAnalytique)
+
+
+3b. COLONNES DE L'EXPORT (perforce_events_v3.json / .csv)
+---------------------------------------------------------
+
+  1 enregistrement par bloc événement assemblé (cmd + completed + ---).
+
+  Colonnes (27) :
+    timestamp, date, time, pid, user, workspace, ip, client, command, args,
+    file_path, nb_files, project, file_ext,
+    duration_s, lapse_s, mem_cmd_mb, mem_proc_mb,
+    rpc_in, rpc_out, db_read_locks, db_write_locks,
+    rows_get, rows_pos, rows_scan, rows_put, rows_del
+
+  file_path : tableau JSON ["chemin1","chemin2"] ou chaîne CSV équivalente
+  nb_files  : nombre de fichiers de l'événement
+  file_ext  : extension(s) distincte(s) — une valeur ou tableau JSON ["uasset","umap"]
+  project   : heuristique NAD/NAND, UE_X.X, dossier avant Content, etc.
+
+  Heuristique project :
+    - Dossier 20XX_NAD_* ou 20XX_NANDxxx_Nxx_Equipexx
+    - Version UE (UE_5.6…)
+    - Premier dossier après lecteur (ex. Enseignement)
+    - Dossier parent avant /Content/
+    - Segment dépôt //...
+    - Vide si pas de fichier (ex. user-submit -i)
+
+
+4. STRUCTURE DU PROJET (9 fichiers Java)
+-----------------------------------------
+
+  Main.java                    → Point d'entrée, exports
+  LecteurLog.java              → Parse le log brut
+  PerforceEvent.java           → Modèle d'événement
+  MetriquesServeur.java        → Métriques --- après completed
+  MetriquesPrometheus.java     → Noms métriques OpenMetrics (_total, _seconds)
+  EnrichissementEvenements.java → Export v3 + affichage console
+  UtilEvenements.java          → Doublons, BeepBeep phase 1 et 2, alertes
+  HistogrammeDurees.java       → Buckets OpenMetrics (Histogram)
+  SummaryDurees.java           → Quantiles p50/p90/p95/p99 (Summary)
+  GenererGraphiques.java       → Figures PNG JFreeChart (dossier figures/)
+
+
+5. PHASE 1 — MÉTRIQUES PROMETHEUS / OPENMETRICS AVEC BEEPBEEP (terminée)
+--------------------------------------------------------------------------
+
+Référence : client Java Prometheus (norme OpenMetrics)
+  https://prometheus.github.io/client_java/
+
+Types OpenMetrics et notre implémentation :
+
+  Counter (implémenté)
+    - Noms : perforce_events_total, perforce_user_submit_total, perforce_user_edit_total
+    - Export : perforce_counters.json (help + value)
+
+  Gauge (implémenté)
+    - Noms : perforce_open_edit_files, perforce_open_edit_users
+    - Export : perforce_gauges.json
+
+  Histogram (implémenté)
+    - perforce_command_duration_seconds (unit: seconds, help)
+    - Labels : command (par_commande dans JSON)
+
+  Summary (implémenté)
+    - perforce_command_duration_seconds + quantiles 0.5/0.9/0.95/0.99
+    - Batch exact (≠ fenêtre glissante client Java live)
+
+  Référence nommage : MetriquesPrometheus.java (aligné client Java Prometheus)
+
+  Info / StateSet / GaugeHistogram — hors scope
+
+  Phase 2 (CEP) — hors types OpenMetrics
+    - edit→revert, apathy, rush multi-users
+
+Résultats sur log réel (juin 2026, log.txt ~1,7 Go) :
+  Événements extraits (brut)    : 17 187
+  Après dédup (BeepBeep)        : 16 262
+  Avec durée (Histogram/Summary): 16 232
+
+  Counter [perforce_events_total]      : 16 262
+  Counter [perforce_user_submit_total]:  1 224
+  Counter [perforce_user_edit_total]  :  4 069
+
+  Gauge [perforce_open_edit_files] fin : 250  |  pic : 500 (27/04 16h)
+  Gauge [perforce_open_edit_users] fin : 56   |  pic : 79
+
+  Summary [global]  p50=0,09s  p95=1,1s  p99=85s  (moyenne 7,4s trompeuse)
+  Summary [user-sync] p50=0,19s  p95=105s  p99=1102s  (syncs UE lourds)
+  Summary [user-edit] p50=0,11s  p99=0,70s
+  Summary [user-resolve] p50=0,08s  (quasi instantané)
+
+Collective Procrastination (submits par heure) :
+  Pics : 27/04 15h → 107 submits, 14h → 95, 17h → 96
+
+Warm Bodies : tbloch → 1475 événements (surtout sync/diff)
+
+Lone Wolf : achavy ratio 182, mafleury ratio 115
+
+
+6. PHASE 2 — PATTERNS TEMPORELS CEP AVEC BEEPBEEP (terminée)
+-------------------------------------------------------------
+
+Pipeline : QueueSource → FilterOn(edit/submit/revert) → détecteur d'état
+
+Patterns :
+  - Bystander Apathy : edit sans submit sur le fichier
+  - Edit → revert : edit puis revert (même fichier)
+  - Rush collectif : ≥ N users distincts submit / heure
+
+Résultats (même run, événements dédupliqués) :
+  Edit → revert     : 217 alertes
+  Bystander Apathy  : 250 fichiers (cohérent avec gauge fin = 250)
+  Rush collectif (≥ 3 users/heure) : 27/04 13h → 60 users, etc.
+
+Export : perforce_events_alertes.json
+
+
+7. COMPARAISON PHASE 1 vs PHASE 2
+----------------------------------
+
+  Antipattern                  | Phase 1 (Prometheus)     | Phase 2 (CEP)
+  -----------------------------|--------------------------|---------------------------
+  Procrastination collective   | Submits / heure          | N users distincts / heure
+  Warm Bodies                  | Top/bottom activité      | —
+  Lone Wolf                    | Ratio edit/submit        | —
+  Bystander Apathy             | Gauge (fichiers ouverts) | edit sans submit
+  Edit → revert                | —                        | edit puis revert
+
+
+8. UTILISATION
+--------------
+
+  Prérequis : Java 11+ ; lib/beepbeep-3.13.jar, lib/jfreechart-1.0.19.jar, lib/jcommon-1.0.23.jar
+
+  Compilation (depuis la racine du projet) :
+    javac -cp "lib/beepbeep-3.13.jar:lib/jfreechart-1.0.19.jar:lib/jcommon-1.0.23.jar" \
+          -d bin -sourcepath src src/ca/uqac/detection/*.java
+
+  Exécution :
+    java -cp "bin:lib/beepbeep-3.13.jar:lib/jfreechart-1.0.19.jar:lib/jcommon-1.0.23.jar" \
+         ca.uqac.detection.Main
+
+  Ou avec chemin explicite :
+    java -cp "bin:lib/beepbeep-3.13.jar" ca.uqac.detection.Main /chemin/vers/log.txt [seuilRush]
+
+  Fichiers produits (racine du projet PerforceLog/) :
+    lib/beepbeep-3.13.jar         → dépendance BeepBeep 3.13
+    log.txt                       → entrée (log brut Perforce)
+    perforce_events_v3.json       → événements enrichis (export principal)
+    perforce_events_v3.csv        → même schéma
+    perforce_counters.json        → Counters OpenMetrics (_total)
+    perforce_gauges.json          → métriques Gauge + série
+    perforce_histogrammes.json    → buckets de durées
+    perforce_summaries.json       → quantiles de durées
+    perforce_events_alertes.json  → alertes phase 2
+    figures/*.png               → 8 graphiques JFreeChart (paper)
+
+
+9. PUBLICATION — TOOL PAPER (piste)
+------------------------------------
+
+  Message : Prometheus (Counter, Gauge, Histogram, Summary) + CEP pour séquences.
+
+  Figures disponibles :
+    - Courbe submits/heure, gauge par heure, histogrammes, quantiles
+    - Timeline edit→revert, tableau phase 1 vs phase 2
+
+  Limites : submits -i, apathy fin de session, quantiles batch vs live Prometheus
+
+
+OÙ ON EN EST
+------------
+
+  [FAIT]  Parseur streaming + métriques serveur (lapse, memory, rpc, db)
+  [FAIT]  Export v3 (27 colonnes, file_path tableau, nb_files)
+  [FAIT]  Phase 1 — Counter, Gauge, Histogram, Summary (BeepBeep)
+  [FAIT]  Phase 2 — CEP + export alertes JSON
+  [FAIT]  Exports métriques JSON (gauges, histogrammes, summaries)
+  [FAIT]  Présentation superviseurs (presentation_superviseurs.pptx)
+  [À FAIRE] Soumission IEEE GEM 2026 Berlin (deadline 6 juill. 2026, EDAS)
+
+
+10. SOUMISSION IEEE GEM 2026 (Berlin)
+-------------------------------------
+
+  Conférence : IEEE Gaming, Entertainment and Media (GEM)
+  Dates      : 5-7 septembre 2026, Berlin (IFA / ICCE-Berlin)
+  Thème      : Mersivity (technologie connectant les équipes)
+  Deadline   : 6 juillet 2026, 23:59 AoE (prolongée)
+  Soumission : https://edas.info/N35278
+  Instructions : https://attend.ieee.org/gem-2026/authors/
+
+  Format :
+    - Anglais, IEEE double-colonne 10pt (template IEEEtran)
+    - 4-6 pages (full paper) + abstract 200 mots max
+    - PDF IEEE-compliant via EDAS
+
+  Fichiers du paper :
+    ieee_gem_paper.tex       → version soumission IEEE GEM
+    ieee_gem_references.bib  → bibliographie (Prometheus, ReliSA, etc.)
+    Makefile.ieee            → compilation PDF
+    figures/*.png            → 8 figures JFreeChart
+
+  Compiler :
+    make -f Makefile.ieee
+
+  Bibliographie clé :
+    - Prometheus metric types (Counter, Gauge, Histogram, Summary)
+    - OpenMetrics, client Java Prometheus
+    - Catalogue ReliSA (antipatterns)
+    - BeepBeep (UQAC/LIF)
+
+
+CONCLUSION
+----------
+
+  Chaîne complète : log → événements → export v3 → 4 types OpenMetrics (phase 1)
+  → détection CEP (phase 2) → exports JSON analytiques et alertes.
+
+  La phase 1 reproduit Counter, Gauge, Histogram et Summary comme Prometheus.
+  La phase 2 apporte la mémoire d'état et l'ordre chronologique (CEP).

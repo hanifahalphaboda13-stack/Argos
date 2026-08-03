@@ -1,0 +1,57 @@
+/**
+ * 
+ */
+/**
+public class GameLogGenerator {
+    public static void main(String[] args) 
+    {
+        System.out.println("Hello Synthia !");
+    }
+}
+*/
+import ca.uqac.lif.synthia.util.Constant;
+import ca.uqac.lif.synthia.util.Tick;
+import ca.uqac.lif.synthia.random.RandomFloat;
+import ca.uqac.lif.synthia.random.RandomInteger;
+import ca.uqac.lif.synthia.sequence.MarkovChain;
+import ca.uqac.lif.synthia.string.StringPattern;
+import ca.uqac.lif.synthia.util.AsLong;
+
+public class GameLogGenerator {
+
+    public static void main(String[] args) {
+        
+        // 1. Timestamp qui s'incrémente
+        Tick timestamp = new Tick(0, new RandomInteger(1, 5));
+        
+        // 2. Markov chain — comportement normal d'un joueur
+        MarkovChain<String> actions = new MarkovChain<>(new RandomFloat());
+        actions.add(0, new Constant<>(""));
+        actions.add(1, new Constant<>("MOVE"));
+        actions.add(2, new Constant<>("SHOOT"));
+        actions.add(3, new Constant<>("RELOAD"));
+        actions.add(4, new Constant<>("DIE"));
+        
+        // Transitions normales
+        actions.add(0, 1, 1.0)
+               .add(1, 2, 0.6)
+               .add(1, 3, 0.4)
+               .add(2, 1, 0.7)
+               .add(2, 4, 0.3)
+               .add(3, 1, 1.0)
+               .add(4, 1, 1.0);
+        
+        // 3. Format de la ligne de log
+        StringPattern logLine = new StringPattern(
+            "{$0} | player_01 | {$1}",
+            new AsLong(timestamp),
+            actions
+        );
+        
+        // 4. Générer 20 événements
+        System.out.println("=== LOG DE JEU SYNTHÉTIQUE ===");
+        for (int i = 0; i < 20; i++) {
+            System.out.println(logLine.pick());
+        }
+    }
+}

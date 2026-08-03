@@ -1,0 +1,83 @@
+package ca.uqac.detection;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+
+public class PerforceEvent {
+
+    private final String timestamp;
+    private final String pid;
+    private final String user;
+    private final String workspace;
+    private final String ip;
+    private final String client;
+    private final String commande;
+    private final List<String> fichiers;
+    private final String duree_s;
+
+    public PerforceEvent(String timestamp, String pid, String user, String workspace,
+                         String ip, String client, String commande,
+                         List<String> fichiers, String duree_s) {
+        this.timestamp = timestamp;
+        this.pid = pid;
+        this.user = user;
+        this.workspace = workspace;
+        this.ip = ip;
+        this.client = client;
+        this.commande = commande;
+        this.fichiers = Collections.unmodifiableList(new ArrayList<String>(fichiers));
+        this.duree_s = duree_s == null ? "" : duree_s;
+    }
+
+    public String getTimestamp() { return timestamp; }
+    public String getPid() { return pid; }
+    public String getUser() { return user; }
+    public String getWorkspace() { return workspace; }
+    public String getIp() { return ip; }
+    public String getClient() { return client; }
+    public String getCommande() { return commande; }
+    public List<String> getFichiers() { return fichiers; }
+    public String getDuree_s() { return duree_s; }
+
+    public PerforceEvent avecDuree(String duree) {
+        return new PerforceEvent(
+            timestamp, pid, user, workspace, ip, client, commande, fichiers, duree
+        );
+    }
+
+    public String cleDedup() {
+        return timestamp + "|" + pid + "|" + commande + "|" + String.join(";", fichiers);
+    }
+
+    @Override
+    public String toString() {
+        return "[" + timestamp + "] " + user + " → " + commande + " " + fichiers;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (!(obj instanceof PerforceEvent)) {
+            return false;
+        }
+        PerforceEvent autre = (PerforceEvent) obj;
+        return timestamp.equals(autre.timestamp)
+            && pid.equals(autre.pid)
+            && user.equals(autre.user)
+            && workspace.equals(autre.workspace)
+            && ip.equals(autre.ip)
+            && client.equals(autre.client)
+            && commande.equals(autre.commande)
+            && fichiers.equals(autre.fichiers)
+            && duree_s.equals(autre.duree_s);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(timestamp, pid, user, workspace, ip, client, commande, fichiers, duree_s);
+    }
+}

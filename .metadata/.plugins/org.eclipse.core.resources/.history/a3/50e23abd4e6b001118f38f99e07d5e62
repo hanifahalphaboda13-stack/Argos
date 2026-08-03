@@ -1,0 +1,446 @@
+package ca.uqac.detection;
+
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Export analytique : 1 ligne par événement, chemins en tableaux (comme fichiers).
+ */
+public final class EnrichissementEvenements {
+
+    private static final Pattern PROJET_NAD =
+        Pattern.compile("(20\\d{3}_NAD_[^/\\\\]+)", Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern PROJET_NAND =
+        Pattern.compile("(20\\d{3}_NAND\\d+_N\\d+_[^/\\\\]+)", Pattern.CASE_INSENSITIVE);
+
+    private EnrichissementEvenements() {
+    }
+
+    public static final class LigneAnalytique {
+        private final String timestamp;
+        private final String date;
+        private final String time;
+        private final int pid;
+        private final String user;
+        private final String workspace;
+        private final String ip;
+        private final String client;
+        private final String commande;
+        private final List<String> filePath;
+        private final List<String> fileName;
+        private final List<String> fileExtension;
+        private final List<String> cheminType;
+        private final List<String> project;
+        private final Double dureeSecondes;
+        private final int nbFichiersEvenement;
+
+        LigneAnalytique(String timestamp, String date, String time, int pid,
+                        String user, String workspace, String ip, String client, String commande,
+                        List<String> filePath, List<String> fileName, List<String> fileExtension,
+                        List<String> cheminType, List<String> project,
+                        Double dureeSecondes, int nbFichiersEvenement) {
+            this.timestamp = timestamp;
+            this.date = date;
+            this.time = time;
+            this.pid = pid;
+            this.user = user;
+            this.workspace = workspace;
+            this.ip = ip;
+            this.client = client;
+            this.commande = commande;
+            this.filePath = Collections.unmodifiableList(new ArrayList<String>(filePath));
+            this.fileName = Collections.unmodifiableList(new ArrayList<String>(fileName));
+            this.fileExtension = Collections.unmodifiableList(new ArrayList<String>(fileExtension));
+            this.cheminType = Collections.unmodifiableList(new ArrayList<String>(cheminType));
+            this.project = Collections.unmodifiableList(new ArrayList<String>(project));
+            this.dureeSecondes = dureeSecondes;
+            this.nbFichiersEvenement = nbFichiersEvenement;
+        }
+
+        public String getTimestamp() { return timestamp; }
+        public String getDate() { return date; }
+        public String getTime() { return time; }
+        public int getPid() { return pid; }
+        public String getUser() { return user; }
+        public String getWorkspace() { return workspace; }
+        public String getIp() { return ip; }
+        public String getClient() { return client; }
+        public String getCommande() { return commande; }
+        public List<String> getFilePath() { return filePath; }
+        public List<String> getFileName() { return fileName; }
+        public List<String> getFileExtension() { return fileExtension; }
+        public List<String> getCheminType() { return cheminType; }
+        public List<String> getProject() { return project; }
+        public Double getDureeSecondes() { return dureeSecondes; }
+        public int getNbFichiersEvenement() { return nbFichiersEvenement; }
+    }
+
+    public static List<LigneAnalytique> enrichir(List<PerforceEvent> evenements) {
+        List<LigneAnalytique> lignes = new ArrayList<LigneAnalytique>();
+        for (PerforceEvent evt : evenements) {
+            lignes.add(enrichirEvenement(evt));
+        }
+        return lignes;
+    }
+
+    public static void afficherDetail(LigneAnalytique l) {
+        System.out.println("  timestamp             : " + l.getTimestamp());
+        System.out.println("  date                  : " + l.getDate());
+        System.out.println("  time                  : " + l.getTime());
+        System.out.println("  pid                   : " + l.getPid());
+        System.out.println("  user                  : " + l.getUser());
+        System.out.println("  workspace             : " + l.getWorkspace());
+        System.out.println("  ip                    : " + l.getIp());
+        System.out.println("  client                : " + l.getClient());
+        System.out.println("  commande              : " + l.getCommande());
+        System.out.println("  file_path             : " + formaterListe(l.getFilePath()));
+        System.out.println("  file_name             : " + formaterListe(l.getFileName()));
+        System.out.println("  file_extension        : " + formaterListe(l.getFileExtension()));
+        System.out.println("  chemin_type           : " + formaterListe(l.getCheminType()));
+        System.out.println("  project               : " + formaterListe(l.getProject()));
+        Double duree = l.getDureeSecondes();
+        System.out.println("  duration_s        : "
+            + (duree == null ? "(vide)" : duree));
+        System.out.println("  nb_fichiers_evenement : " + l.getNbFichiersEvenement());
+    }
+
+    private static String formaterListe(List<String> valeurs) {
+        if (valeurs.isEmpty()) {
+            return "(aucun)";
+        }
+        if (valeurs.size() == 1) {
+            return valeurs.get(0);
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < valeurs.size(); i++) {
+            sb.append("\n                          - ").append(valeurs.get(i));
+        }
+        return sb.toString();
+    }
+
+    public static String cheminAnalytiqueDepuis(String cheminEvenements) {
+        if (cheminEvenements.endsWith(".json")) {
+            return cheminEvenements.substring(0, cheminEvenements.length() - 5) + "_analytique.json";
+        }
+        if (cheminEvenements.endsWith(".csv")) {
+            return cheminEvenements.substring(0, cheminEvenements.length() - 4) + "_analytique.csv";
+        }
+        return cheminEvenements + "_analytique.json";
+    }
+
+    public static void exporterAnalytique(List<PerforceEvent> evenements, String cheminSortie,
+                                          UtilEvenements.FormatSortie format) throws IOException {
+        exporterAnalytiqueLignes(enrichir(evenements), cheminSortie, format);
+    }
+
+    public static void exporterAnalytiqueLignes(List<LigneAnalytique> lignes, String cheminSortie,
+                                                UtilEvenements.FormatSortie format) throws IOException {
+        if (format == UtilEvenements.FormatSortie.JSON) {
+            ecrireJSON(lignes, cheminSortie);
+        } else {
+            ecrireCSV(lignes, cheminSortie);
+        }
+    }
+
+    private static LigneAnalytique enrichirEvenement(PerforceEvent evt) {
+        String workspace = evt.getWorkspace();
+        List<String> paths = new ArrayList<String>();
+        List<String> names = new ArrayList<String>();
+        List<String> extensions = new ArrayList<String>();
+        List<String> types = new ArrayList<String>();
+        List<String> projects = new ArrayList<String>();
+
+        for (String fichierBrut : evt.getFichiers()) {
+            paths.add(fichierBrut);
+            String cheminAnalyse = normaliserChemin(fichierBrut);
+            String name = extraireNomFichier(cheminAnalyse);
+            names.add(name);
+            extensions.add(extraireExtension(name));
+            types.add(determinerTypeChemin(cheminAnalyse));
+            projects.add(extraireProjet(cheminAnalyse, workspace));
+        }
+
+        int nbFichiers = paths.size();
+        return new LigneAnalytique(
+            evt.getTimestamp(),
+            extraireDate(evt.getTimestamp()),
+            extraireHeure(evt.getTimestamp()),
+            parserPid(evt.getPid()),
+            evt.getUser(),
+            workspace,
+            evt.getIp(),
+            evt.getClient(),
+            evt.getCommande(),
+            paths,
+            names,
+            extensions,
+            types,
+            projects,
+            parserDuree(evt.getDuree_s()),
+            nbFichiers
+        );
+    }
+
+    static String extraireProjet(String cheminNormalise, String workspace) {
+        if (cheminNormalise != null && !cheminNormalise.isEmpty()) {
+            Matcher nad = PROJET_NAD.matcher(cheminNormalise);
+            if (nad.find()) {
+                return nad.group(1).toLowerCase();
+            }
+            Matcher nand = PROJET_NAND.matcher(cheminNormalise);
+            if (nand.find()) {
+                return nand.group(1).toLowerCase();
+            }
+            if (cheminNormalise.startsWith("//")) {
+                String depot = extrairePremierSegmentDepot(cheminNormalise);
+                if (!depot.isEmpty()) {
+                    return depot;
+                }
+            }
+        }
+        if (workspace != null && !workspace.trim().isEmpty()) {
+            return workspace.trim();
+        }
+        return "inconnu";
+    }
+
+    private static String extrairePremierSegmentDepot(String chemin) {
+        if (chemin.length() <= 2) {
+            return "";
+        }
+        String reste = chemin.substring(2);
+        int slash = reste.indexOf('/');
+        String segment = slash >= 0 ? reste.substring(0, slash) : reste;
+        return segment.trim().toLowerCase();
+    }
+
+    static String normaliserChemin(String chemin) {
+        if (chemin == null || chemin.trim().isEmpty()) {
+            return "";
+        }
+        String n = chemin.trim().replace('\\', '/');
+        int dieze = n.indexOf('#');
+        if (dieze >= 0) {
+            n = n.substring(0, dieze);
+        }
+        int paren = n.indexOf(" (");
+        if (paren >= 0) {
+            n = n.substring(0, paren).trim();
+        }
+        if (n.endsWith("/...")) {
+            n = n.substring(0, n.length() - 4);
+        }
+        return n;
+    }
+
+    static String extraireNomFichier(String cheminNormalise) {
+        if (cheminNormalise == null || cheminNormalise.isEmpty()) {
+            return "";
+        }
+        int slash = cheminNormalise.lastIndexOf('/');
+        return slash >= 0 ? cheminNormalise.substring(slash + 1) : cheminNormalise;
+    }
+
+    static String extraireExtension(String fileName) {
+        if (fileName == null || fileName.isEmpty() || "...".equals(fileName)) {
+            return "";
+        }
+        int dot = fileName.lastIndexOf('.');
+        if (dot < 0 || dot == fileName.length() - 1) {
+            return "";
+        }
+        return fileName.substring(dot + 1).toLowerCase();
+    }
+
+    static String determinerTypeChemin(String cheminNormalise) {
+        if (cheminNormalise == null || cheminNormalise.isEmpty()) {
+            return "aucun";
+        }
+        if (cheminNormalise.startsWith("//")) {
+            return "depot";
+        }
+        if (cheminNormalise.length() >= 2 && cheminNormalise.charAt(1) == ':') {
+            return "local";
+        }
+        return "autre";
+    }
+
+    static String extraireDate(String timestamp) {
+        if (timestamp == null || timestamp.length() < 10) {
+            return timestamp == null ? "" : timestamp;
+        }
+        return timestamp.substring(0, 10);
+    }
+
+    static String extraireHeure(String timestamp) {
+        if (timestamp == null || timestamp.length() < 19) {
+            return "";
+        }
+        return timestamp.substring(11, 19);
+    }
+
+    static int parserPid(String pid) {
+        if (pid == null || pid.trim().isEmpty()) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(pid.trim());
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    static Double parserDuree(String duree) {
+        if (duree == null || duree.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return Double.parseDouble(duree.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static void ecrireCSV(List<LigneAnalytique> lignes, String cheminCSV) throws IOException {
+        BufferedWriter bw = new BufferedWriter(new FileWriter(cheminCSV), 1 << 20);
+        try {
+            bw.write("timestamp,date,time,pid,user,workspace,ip,client,commande,"
+                + "file_path,file_name,file_extension,chemin_type,project,"
+                + "duree_secondes,nb_fichiers_evenement\n");
+            for (LigneAnalytique l : lignes) {
+                bw.write(String.join(",",
+                    echapperCSV(l.getTimestamp()),
+                    echapperCSV(l.getDate()),
+                    echapperCSV(l.getTime()),
+                    String.valueOf(l.getPid()),
+                    echapperCSV(l.getUser()),
+                    echapperCSV(l.getWorkspace()),
+                    echapperCSV(l.getIp()),
+                    echapperCSV(l.getClient()),
+                    echapperCSV(l.getCommande()),
+                    echapperCSV(joindreListe(l.getFilePath())),
+                    echapperCSV(joindreListe(l.getFileName())),
+                    echapperCSV(joindreListe(l.getFileExtension())),
+                    echapperCSV(joindreListe(l.getCheminType())),
+                    echapperCSV(joindreListe(l.getProject())),
+                    formaterNombre(l.getDureeSecondes()),
+                    String.valueOf(l.getNbFichiersEvenement())
+                ));
+                bw.newLine();
+            }
+        } finally {
+            bw.close();
+        }
+    }
+
+    private static void ecrireJSON(List<LigneAnalytique> lignes, String cheminJSON) throws IOException {
+        BufferedWriter bw = new BufferedWriter(new FileWriter(cheminJSON), 1 << 20);
+        try {
+            bw.write("{\n");
+            bw.write("  \"nombre_evenements\": " + lignes.size() + ",\n");
+            bw.write("  \"evenements\": [\n");
+            for (int i = 0; i < lignes.size(); i++) {
+                ecrireLigneJSON(bw, lignes.get(i), "    ");
+                bw.write(i < lignes.size() - 1 ? ",\n" : "\n");
+            }
+            bw.write("  ]\n");
+            bw.write("}\n");
+        } finally {
+            bw.close();
+        }
+    }
+
+    private static void ecrireLigneJSON(BufferedWriter bw, LigneAnalytique l, String indent)
+            throws IOException {
+        bw.write(indent + "{\n");
+        ecrireChampTexte(bw, indent + "  ", "timestamp", l.getTimestamp(), false);
+        ecrireChampTexte(bw, indent + "  ", "date", l.getDate(), false);
+        ecrireChampTexte(bw, indent + "  ", "time", l.getTime(), false);
+        ecrireChampEntier(bw, indent + "  ", "pid", l.getPid(), false);
+        ecrireChampTexte(bw, indent + "  ", "user", l.getUser(), false);
+        ecrireChampTexte(bw, indent + "  ", "workspace", l.getWorkspace(), false);
+        ecrireChampTexte(bw, indent + "  ", "ip", l.getIp(), false);
+        ecrireChampTexte(bw, indent + "  ", "client", l.getClient(), false);
+        ecrireChampTexte(bw, indent + "  ", "commande", l.getCommande(), false);
+        ecrireListeJSON(bw, indent + "  ", "file_path", l.getFilePath(), false);
+        ecrireListeJSON(bw, indent + "  ", "file_name", l.getFileName(), false);
+        ecrireListeJSON(bw, indent + "  ", "file_extension", l.getFileExtension(), false);
+        ecrireListeJSON(bw, indent + "  ", "chemin_type", l.getCheminType(), false);
+        ecrireListeJSON(bw, indent + "  ", "project", l.getProject(), false);
+        ecrireChampNombre(bw, indent + "  ", "duree_secondes", l.getDureeSecondes(), false);
+        ecrireChampEntier(bw, indent + "  ", "nb_fichiers_evenement", l.getNbFichiersEvenement(), true);
+        bw.write(indent + "}");
+    }
+
+    private static void ecrireChampTexte(BufferedWriter bw, String indent, String nom,
+            String valeur, boolean dernier) throws IOException {
+        bw.write(indent + "\"" + nom + "\": \"" + echapperJSON(valeur) + "\"");
+        bw.write(dernier ? "\n" : ",\n");
+    }
+
+    private static void ecrireListeJSON(BufferedWriter bw, String indent, String nom,
+            List<String> valeurs, boolean dernierChamp) throws IOException {
+        bw.write(indent + "\"" + nom + "\": [");
+        for (int i = 0; i < valeurs.size(); i++) {
+            bw.write("\"" + echapperJSON(valeurs.get(i)) + "\"");
+            if (i < valeurs.size() - 1) {
+                bw.write(", ");
+            }
+        }
+        bw.write("]");
+        bw.write(dernierChamp ? "\n" : ",\n");
+    }
+
+    private static void ecrireChampEntier(BufferedWriter bw, String indent, String nom,
+            int valeur, boolean dernier) throws IOException {
+        bw.write(indent + "\"" + nom + "\": " + valeur);
+        bw.write(dernier ? "\n" : ",\n");
+    }
+
+    private static void ecrireChampNombre(BufferedWriter bw, String indent, String nom,
+            Double valeur, boolean dernier) throws IOException {
+        if (valeur == null) {
+            bw.write(indent + "\"" + nom + "\": null");
+        } else {
+            bw.write(indent + "\"" + nom + "\": " + valeur);
+        }
+        bw.write(dernier ? "\n" : ",\n");
+    }
+
+    private static String joindreListe(List<String> valeurs) {
+        return String.join(";", valeurs);
+    }
+
+    private static String formaterNombre(Double valeur) {
+        return valeur == null ? "" : String.valueOf(valeur);
+    }
+
+    private static String echapperCSV(String valeur) {
+        if (valeur.contains(",") || valeur.contains("\"") || valeur.contains(";")) {
+            return "\"" + valeur.replace("\"", "\"\"") + "\"";
+        }
+        return valeur;
+    }
+
+    private static String echapperJSON(String valeur) {
+        StringBuilder sb = new StringBuilder();
+        for (char c : valeur.toCharArray()) {
+            switch (c) {
+                case '"': sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                default: sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+}

@@ -1,0 +1,10 @@
+package ca.uqac.detection;
+
+public class LecteurCSV {
+
+	public static void main(String[] args) {
+		// TODO Auto-generated method stub
+
+	}
+
+}

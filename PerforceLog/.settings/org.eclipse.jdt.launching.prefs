@@ -1,0 +1,2 @@
+eclipse.preferences.version=1
+org.eclipse.jdt.launching.PREF_EXECUTION_ENVIRONMENTS=<?xml version\="1.0" encoding\="UTF-8" standalone\="no"?>\n<executionEnvironments>\n<executionEnvironment handlerId\="org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType">\n<environment id\="JavaSE-11"/>\n<defaultVM path\="/usr/lib/jvm/java-11-openjdk-amd64"/>\n</executionEnvironment>\n</executionEnvironments>\n
