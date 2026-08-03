@@ -34,8 +34,10 @@ Argos repose sur deux phases complémentaires :
 
 ## Installation
 
+```
 git clone https://github.com/hanifahalphaboda13-stack/Argos.git
 cd Argos
+```
 
 ## Données
 
