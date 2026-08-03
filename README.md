@@ -32,6 +32,10 @@ Argos repose sur deux phases complémentaires :
 - **250** fichiers abandonnés détectés
 - Validation croisée interne : la valeur terminale de la jauge *open-files* correspond exactement au nombre d'alertes d'apathie (**250** dans les deux cas)
 
+## Installation
+
+git clone https://github.com/hanifahalphaboda13-stack/Argos.git
+cd Argos
 
 ## Données
 
